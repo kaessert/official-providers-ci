@@ -42,11 +42,6 @@ on:
         default: 'run-e2e-tests'
         required: false
         type: string
-      examples-path:
-        description: 'Path to examples directory to test when triggered by label'
-        default: 'examples/'
-        required: false
-        type: string
     secrets:
       UPTEST_CLOUD_CREDENTIALS:
         description: 'Uptest cloud credentials to be passed to the uptest target as environment variable'
@@ -72,10 +67,7 @@ jobs:
       (github.event_name == 'issue_comment' &&
        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER') &&
        github.event.issue.pull_request &&
-       contains(github.event.comment.body, inputs.trigger-keyword)) ||
-      (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == inputs.auto-run-label)
+       contains(github.event.comment.body, inputs.trigger-keyword))
     runs-on: ${{ inputs.runs-on }}
     outputs:
       example_list: ${{ steps.get-example-list-name.outputs.example-list }}
@@ -87,21 +79,13 @@ jobs:
         with:
           submodules: true
 
-      - name: Checkout PR (Comment Trigger)
-        if: ${{ github.event_name == 'issue_comment' }}
+      - name: Checkout PR
+        if: ${{ github.event_name == 'issue_comment' }} || ${{ github.event_name == 'pull_request' }}
         id: checkout-pr-comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr checkout ${{ github.event.issue.number }}
-          git submodule update --init --recursive
-          OUTPUT=$(git log -1 --format='%H')
-          echo "commit-sha=$OUTPUT" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR (Label Trigger)
-        if: ${{ github.event_name == 'pull_request' }}
-        id: checkout-pr-label
-        run: |
           git submodule update --init --recursive
           OUTPUT=$(git log -1 --format='%H')
           echo "commit-sha=$OUTPUT" >> $GITHUB_OUTPUT
@@ -124,40 +108,6 @@ jobs:
           echo "Example Hash: ${EXAMPLE_HASH}"
 
           echo "example-list=${EXAMPLE_LIST:1}" >> $GITHUB_OUTPUT
-          echo "example-hash=${EXAMPLE_HASH}" >> $GITHUB_OUTPUT
-
-      - name: Get Example List from Label
-        if: ${{ github.event_name == 'pull_request' }}
-        id: get-example-list-from-label
-        run: |
-          EXAMPLE_LIST=""
-          EXAMPLE_LIST="${EXAMPLE_LIST},$(find ${{ inputs.examples-path }} -name '*.yaml' | tr '\n' ',')"
-
-          sudo apt-get -y install coreutils
-          COUNT=$(echo ${EXAMPLE_LIST:1} | grep -o ".yaml" | wc -l)
-          if [ $COUNT -gt 1 ]; then EXAMPLE_HASH=$(echo ${EXAMPLE_LIST} | md5sum | cut -f1 -d" "); else EXAMPLE_HASH=$(echo ${EXAMPLE_LIST:1} | sed 's/.$//'); fi
-
-          echo "Examples: ${EXAMPLE_LIST:1}"
-          echo "Example Hash: ${EXAMPLE_HASH}"
-
-          echo "example-list=${EXAMPLE_LIST:1}" >> $GITHUB_OUTPUT
-          echo "example-hash=${EXAMPLE_HASH}" >> $GITHUB_OUTPUT
-
-      - name: Merge Example Lists
-        id: get-example-list-name
-        run: |
-          EXAMPLE_LIST=""
-          EXAMPLE_HASH=""
-
-          if [ "${{ github.event_name }}" == "issue_comment" ]; then
-            EXAMPLE_LIST="${{ steps.get-example-list-from-comment.outputs.example-list }}"
-            EXAMPLE_HASH="${{ steps.get-example-list-from-comment.outputs.example-hash }}"
-          else
-            EXAMPLE_LIST="${{ steps.get-example-list-from-label.outputs.example-list }}"
-            EXAMPLE_HASH="${{ steps.get-example-list-from-label.outputs.example-hash }}"
-          fi
-
-          echo "example-list=${EXAMPLE_LIST}" >> $GITHUB_OUTPUT
           echo "example-hash=${EXAMPLE_HASH}" >> $GITHUB_OUTPUT
 
       - name: Create Pending Status Check
